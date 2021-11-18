@@ -7,4 +7,3 @@ __pycache__/
 My_data/*.txt
 My_data/Test_set/
 My_data/Train_set/
-checkpoints/
