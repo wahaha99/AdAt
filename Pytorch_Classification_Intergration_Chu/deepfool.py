@@ -234,7 +234,8 @@ class DeepFoolAttack:
         print('total number of attacked images: ', count)
         print("total number of fooled classifications: ", fool_count)
         print('fool ratio: ', fool_count/count)
-        print('avg ssim: ', np.mean(np.array(ssim_arr)))
+        print('mean ssim: ', np.mean(np.array(ssim_arr)))
+        print('std ssim: ', np.std(np.array(ssim_arr)))
         print('avg loop num: ', np.mean(np.array(i_arr)))
 
 
