@@ -253,7 +253,7 @@ if __name__ == '__main__':
     img_path = '/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/test_image/'
     mean = [0.7750, 0.5888, 0.7629]
     std = [0.2129, 0.2971, 0.1774]
-    model_path = "/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/checkpoints/b0300/weights/best.pt"
+    model_path = "/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/checkpoints/new/best.pt"
     num_classes = 3
     overshoot = 0.02
     max_iter = 10
