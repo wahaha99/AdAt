@@ -22,6 +22,8 @@ from collections import Counter
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import PIL
+# save data
+import pickle
 
 def default_image_loader(image_path):
     """
@@ -107,19 +109,19 @@ class DeepFoolAttack:
         self.dataloader_attack = None
 
     def load(self, label_path):
-            # resize images and rescale values
-            data_mean = torch.tensor(self.mean)
-            data_std = torch.tensor(self.std)
-            album_compose = album.Compose([
-                album.Resize(400, 400),                                                        # Resize to IMAGE_SIZE x IMAGE_SIZE
-                album.Normalize(mean=[0.0,0.0,0.0], std=[1.0,1.0,1.0], max_pixel_value=255.0), # Rescale values from [0,255] to [0,1]
-                album.Normalize(mean=data_mean, std=data_std, max_pixel_value=1.0),            # Rescale values according to above
-                ToTensorV2(),
-            ])
-            # load data
-            dataset_attack = LoadDatasetFromCSV(image_root = img_path, csv_path = label_path,transforms=album_compose)
-            dataloader_attack = DataLoader(dataset=dataset_attack, batch_size = 1, shuffle = False)
-            self.dataloader_attack = dataloader_attack
+        # resize images and rescale values
+        data_mean = torch.tensor(self.mean)
+        data_std = torch.tensor(self.std)
+        album_compose = album.Compose([
+            album.Resize(400, 400),                                                        # Resize to IMAGE_SIZE x IMAGE_SIZE
+            album.Normalize(mean=[0.0,0.0,0.0], std=[1.0,1.0,1.0], max_pixel_value=255.0), # Rescale values from [0,255] to [0,1]
+            album.Normalize(mean=data_mean, std=data_std, max_pixel_value=1.0),            # Rescale values according to above
+            ToTensorV2(),
+        ])
+        # load data
+        dataset_attack = LoadDatasetFromCSV(image_root = img_path, csv_path = label_path,transforms=album_compose)
+        dataloader_attack = DataLoader(dataset=dataset_attack, batch_size = 1, shuffle = False)
+        self.dataloader_attack = dataloader_attack
 
     def dfattack(self, save_path, min_ssim = 0.995, restrict_iter = False, restrict_ssim = True):
         #intialize
@@ -129,6 +131,8 @@ class DeepFoolAttack:
         i_arr = []
         count = 0
         fool_count = 0
+        attacked_arr = []
+        ori_arr = []
         #load model
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = torch.load(self.model_path, map_location=device)
@@ -144,13 +148,13 @@ class DeepFoolAttack:
         #handle restrictions
         if restrict_iter == False: self.max_iter = np.inf
         if restrict_ssim == False: min_ssim = 0
-
         # attack
         for batch, (images, labels) in enumerate(self.dataloader_attack):
             # batch: int
             # labels: tensor([int])
             image = images['image'] # image: tensor([[[...]]]) shape: 1, 3, 400, 400
             image = torch.squeeze(image) # squeeze to 3*400*400
+            ori_arr.append(image)
             img_rt = out_transform(image) #a copy of unattacked image
             f_image = net.forward(Variable(image[None, :, :, :], requires_grad=True)).data.numpy().flatten()
             I = (np.array(f_image)).flatten().argsort()[::-1]
@@ -206,6 +210,7 @@ class DeepFoolAttack:
             r_tot = (1+overshoot)*r_tot
             # process output
             pert_image_rt = np.array(out_transform(pert_image[0]))
+            attacked_arr.append(pert_image[0])
             r_rt = np.array(pert_image_rt) - np.array(img_rt)
             # return loop_i, label, k_i, pert_image_rt, img_rt, r_rt, ssim
             # save outputs 
@@ -237,13 +242,13 @@ class DeepFoolAttack:
         print('mean ssim: ', np.mean(np.array(ssim_arr)))
         print('std ssim: ', np.std(np.array(ssim_arr)))
         print('avg loop num: ', np.mean(np.array(i_arr)))
+        return ori_arr, attacked_arr
 
-
-  
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--restrict_iter', type=str2bool, default=False, help='restrict_iter') 
     parser.add_argument('--restrict_ssim', type=str2bool, default=True, help='restrict_ssim') 
+
     args = parser.parse_args()
     print('restrict_iter :', args.restrict_iter)
     print('restrict_ssim :', args.restrict_ssim)
@@ -260,9 +265,13 @@ if __name__ == '__main__':
     df = DeepFoolAttack(img_path, mean, std, model_path, num_classes, overshoot, max_iter)
     save_path = '/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/pert_image/'
     df.load('/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/data_labels_test.csv')
-    df.dfattack(save_path,  restrict_iter = restrict_iter, restrict_ssim = restrict_ssim)
-
-
+    ori_arr, attacked_arr = df.dfattack(save_path,  restrict_iter = restrict_iter, restrict_ssim = restrict_ssim)
+    f = open('/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/pert_image/ori_arr.pckl', 'wb')
+    pickle.dump(ori_arr, f)
+    f.close()
+    f = open('/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/pert_image/attacked_arr.pckl', 'wb')
+    pickle.dump(attacked_arr, f)
+    f.close()
 
 
   
