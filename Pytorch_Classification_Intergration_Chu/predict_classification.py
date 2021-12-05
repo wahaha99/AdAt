@@ -78,8 +78,10 @@ if __name__ == '__main__':
     parser.add_argument('--source', type=str, default='/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/test_image/',
                         help='source')  # file/folder, 0 for webcam
     parser.add_argument('--model', type=str,
-                        default="/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/checkpoints/b0300/weights/best.pt")
+                        default="/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/checkpoints/new/best.pt")
     parser.add_argument('--image_size', type=int, default=400, help='image_size')
+    parser.add_argument('--out', type=str, default="/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/train_label_by_model.csv",
+                        help='out')
     args = parser.parse_args()
     print(args)
 
@@ -92,7 +94,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = torch.load(args.model, map_location=device)
     print('Load Model Done!!!')
-    outfile = "/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/train_label_by_model.csv"
+    outfile = args.out
     fileout = open(outfile, "w")
     if not fileout:
         print("cannot open the file %s for writing" % outfile)
@@ -107,9 +109,9 @@ if __name__ == '__main__':
             img0 = default_loader(image_path)
 
             valid_transform = transforms.Compose([
-                transforms.Resize(size=(args.image_size, args.image_size), interpolation=Image.LANCZOS),
+                transforms.Scale(args.image_size),
                 transforms.ToTensor(),
-                transforms.Normalize([0.7823419,  0.59793377, 0.7674322 ], [0.1811313,  0.2713135,  0.15672927])
+                transforms.Normalize([0.7750, 0.5888, 0.7629], [0.2129, 0.2971, 0.1774])
             ])
 
             img = valid_transform(img0)

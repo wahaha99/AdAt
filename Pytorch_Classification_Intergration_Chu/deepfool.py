@@ -25,6 +25,7 @@ import PIL
 # save data
 import pickle
 
+
 def default_image_loader(image_path):
     """
     Helper function to open image file as PIL image in RBG format.
@@ -138,6 +139,11 @@ class DeepFoolAttack:
         model = torch.load(self.model_path, map_location=device)
         net = model.eval()
         # output transform
+        in_transform = transforms.Compose([
+                        transforms.Scale(400),
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean = self.mean, std = self.std)
+                        ])
         clip = lambda x: clip_tensor(x, 0, 255)
         out_transform = transforms.Compose([
                         transforms.Normalize(mean=[0, 0, 0], std=list(map(lambda x: 1 / x, self.std))),
@@ -193,25 +199,38 @@ class DeepFoolAttack:
                 # compute ssim
                 pert_image_tmp = image + (1+overshoot)*torch.from_numpy(r_tot_tmp)
                 pert_image_tmp = out_transform(pert_image_tmp[0])
-                ssim_tmp = structural_similarity(np.array(img_rt), np.array(pert_image_tmp), data_range = np.array(img_rt).max() - np.array(img_rt).min(), multichannel=True)
+                pert_image_tmp = Image.fromarray((np.array(pert_image_tmp)), 'RGB')
+                pert_image_tmp.save('tmp.png')
+                pert_image_quantized = in_transform(Image.open('tmp.png'))
+                #pert_image_quantized_rt = out_transform(pert_image_quantized)
+                pert_image_quantized_rt = pert_image_tmp
+                ssim_tmp = structural_similarity(np.array(img_rt), np.array(pert_image_quantized_rt), data_range = np.array(img_rt).max() - np.array(img_rt).min(), multichannel=True)
                 if ssim_tmp > min_ssim: 
                     ssim = ssim_tmp
                     r_tot = np.float32(r_tot + r_i)
                     pert_image = image + (1+overshoot)*torch.from_numpy(r_tot)
-                    x = Variable(pert_image, requires_grad=True)
+                    x = Variable(pert_image_quantized[None, :, :, :], requires_grad=True)
+                    #x = Variable(pert_image, requires_grad=True)
                     fs = net.forward(x)
                     k_i = np.argmax(fs.data.numpy().flatten())
                     loop_i += 1
                 else: 
                     #print(ssim_tmp)
                     r_tot = np.float32(r_tot + r_i * 0)
-                    pert_image = image + (1+overshoot)*torch.from_numpy(r_tot)
+                    #pert_image = image + (1+overshoot)*torch.from_numpy(r_tot)
+                    pert_image_tmp = image + (1+overshoot)*torch.from_numpy(r_tot)
+                    pert_image_tmp = out_transform(pert_image_tmp[0])
+                    pert_image_tmp = Image.fromarray((np.array(pert_image_tmp)), 'RGB')
+                    pert_image_tmp.save('tmp.png')
+                    pert_image_quantized = in_transform(Image.open('tmp.png'))
+                    #pert_image_quantized_rt = out_transform(pert_image_quantized)
+                    pert_image_quantized_rt = pert_image_tmp
                     break
             r_tot = (1+overshoot)*r_tot
             # process output
-            pert_image_rt = np.array(out_transform(pert_image[0]))
-            attacked_arr.append(pert_image[0])
-            r_rt = np.array(pert_image_rt) - np.array(img_rt)
+            #pert_image_rt = np.array(out_transform(pert_image[0]))
+            attacked_arr.append(pert_image_quantized)#[0])
+            r_rt = np.array(pert_image_quantized_rt) - np.array(img_rt)
             # return loop_i, label, k_i, pert_image_rt, img_rt, r_rt, ssim
             # save outputs 
             label_arr.append(label)
@@ -223,9 +242,22 @@ class DeepFoolAttack:
             print('new label: ', k_i)
             print('ssim: ', ssim)
             print('loop num: ', loop_i)
+            ###
+            #x = Variable(pert_image_quantized[None, :, :, :], requires_grad=True)
+            #fs = net.forward(x)
+            #k_i = np.argmax(fs.data.numpy().flatten())
+            #print('test: ', k_i)
+            #img = pert_image_quantized.unsqueeze(0)
+            #net.to(device)
+            #img = img.to(device)
+            #out = net(img)
+            #preds = F.softmax(out, dim=1)
+            #prod, index = torch.max(preds, 1)
+            #print('test: ', index)
+
             # save images
             pert_file = save_path + 'pert_' + str(batch) + '.png'
-            Image.fromarray((np.array(pert_image_rt)), 'RGB').save(pert_file)
+            Image.fromarray((np.array(pert_image_quantized_rt)), 'RGB').save(pert_file)
             ori_file = save_path + 'ori_' + str(batch) + '.png'
             Image.fromarray((np.array(img_rt)), 'RGB').save(ori_file)
             r_file = save_path + 'r_' + str(batch) + '.png'
@@ -248,7 +280,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--restrict_iter', type=str2bool, default=False, help='restrict_iter') 
     parser.add_argument('--restrict_ssim', type=str2bool, default=True, help='restrict_ssim') 
-
+    parser.add_argument('--overshoot', type=int, default=0.02, help='overshoot')
+    parser.add_argument('--max_iter', type=int, default=10, help='max_iter')
     args = parser.parse_args()
     print('restrict_iter :', args.restrict_iter)
     print('restrict_ssim :', args.restrict_ssim)
@@ -260,8 +293,8 @@ if __name__ == '__main__':
     std = [0.2129, 0.2971, 0.1774]
     model_path = "/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/checkpoints/new/best.pt"
     num_classes = 3
-    overshoot = 0.02
-    max_iter = 10
+    overshoot = args.overshoot
+    max_iter = args.max_iter
     df = DeepFoolAttack(img_path, mean, std, model_path, num_classes, overshoot, max_iter)
     save_path = '/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/pert_image/'
     df.load('/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/data_labels_test.csv')
