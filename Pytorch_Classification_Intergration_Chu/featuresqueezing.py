@@ -25,7 +25,7 @@ import PIL
 # save data
 import pickle
 # entropy
-from scipy.stats import entropy
+#from scipy.stats import entropy
 # median filter
 from scipy import ndimage
 
@@ -107,8 +107,10 @@ def median_filter(img, size):
     ret = torch.from_numpy(ret).float()
     return ret
 
+
+
 class FeatureSqueezing:
-    def __init__(self, img_path, mean, std, model_path, num_classes, ori_arr, attacked_arr, learn_ratio):
+    def __init__(self, img_path, mean, std, model_path, num_classes, ori_arr, attacked_arr, learn_ratio, metric):
         self.img_path = img_path
         self.mean = mean
         self.std = std
@@ -117,11 +119,16 @@ class FeatureSqueezing:
         self.ori_arr = ori_arr
         self.attacked_arr = attacked_arr
         self.learn_ratio = learn_ratio
+        self.metric = metric
         self.threshold_c = 0
         self.threshold_m = 0
 
+    def calculate_e(self, a, b):
+        if self.metric == 0: return entropy(a, b) # entropy
+        if self.metric == 1: return np.linalg.norm((np.array(a) - np.array(b)), ord=1) # l1 norm
+
     def learn_threshold_c(self, net, bit_depth, ori_learn, attacked_learn):
-        print("### learning threshold ###")
+        print("### learning threshold c ###")
         e_ori_arr = []
         e_attacked_arr = []
         for i in range(len(ori_learn)):
@@ -131,22 +138,25 @@ class FeatureSqueezing:
             p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
             logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
             p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
-            e = entropy(p, p_sq)
+            e = self.calculate_e(p, p_sq)
             #print(e)
             e_ori_arr.append(e)
         for i in range(len(attacked_learn)):
-            image = attacked_learn[i]        
+            image = attacked_learn[i]      
+            #print(image.numpy().shape)     
             image_sq = color_bit_squeezer(image, bit_depth)
             logit = net.forward(Variable(image[None, :, :, :], requires_grad=True))
             p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
             logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
             p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
-            e = entropy(p, p_sq)
+            e = self.calculate_e(p, p_sq)
             #print(e)
             e_attacked_arr.append(e)    
         center_ori = np.mean(e_ori_arr)
         center_attacked = np.mean(e_attacked_arr)
-        th = (center_ori + center_attacked) / 2
+        #th = (center_ori + center_attacked) / 2
+        selected_distance_idx = int(np.ceil(len(ori_learn) * 0.9))
+        th = sorted(e_ori_arr)[selected_distance_idx-1]
         print("threshold: ", th)
         self.threshold_c = th
 
@@ -175,7 +185,7 @@ class FeatureSqueezing:
             p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
             logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
             p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
-            e = entropy(p, p_sq)
+            e = self.calculate_e(p, p_sq)
             if e > self.threshold_c: ad_count_ori = ad_count_ori + 1
         print('###')
         print('total number of unttacked images: ', len(ori_detection))
@@ -188,15 +198,15 @@ class FeatureSqueezing:
             p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
             logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
             p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
-            e = entropy(p, p_sq)
+            e = self.calculate_e(p, p_sq)
             if e > self.threshold_c: ad_count_attacked = ad_count_attacked + 1
         print('###')
-        print('total number of images: ', len(attacked_detection))
+        print('total number of attacked images: ', len(attacked_detection))
         print("total number of detected adversarial samples: ", ad_count_attacked)
         print('detection ratio: ', ad_count_attacked/len(attacked_detection))
 
     def learn_threshold_m(self, net, size, ori_learn, attacked_learn):
-        print("### learning threshold ###")
+        print("### learning threshold m ###")
         e_ori_arr = []
         e_attacked_arr = []
         for i in range(len(ori_learn)):
@@ -206,22 +216,24 @@ class FeatureSqueezing:
             p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
             logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
             p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
-            e = entropy(p, p_sq)
+            e = self.calculate_e(p, p_sq)
             #print(e)
             e_ori_arr.append(e)
         for i in range(len(attacked_learn)):
-            image = attacked_learn[i]        
+            image = attacked_learn[i]     
             image_sq = median_filter(image, size)
             logit = net.forward(Variable(image[None, :, :, :], requires_grad=True))
             p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
             logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
             p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
-            e = entropy(p, p_sq)
+            e = self.calculate_e(p, p_sq)
             #print(e)
             e_attacked_arr.append(e)    
         center_ori = np.mean(e_ori_arr)
         center_attacked = np.mean(e_attacked_arr)
-        th = (center_ori + center_attacked) / 2
+        #th = (center_ori + center_attacked) / 2
+        selected_distance_idx = int(np.ceil(len(ori_learn) * 0.9))
+        th = sorted(e_ori_arr)[selected_distance_idx-1]
         print("threshold: ", th)
         self.threshold_m = th
 
@@ -250,7 +262,7 @@ class FeatureSqueezing:
             p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
             logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
             p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
-            e = entropy(p, p_sq)
+            e = self.calculate_e(p, p_sq)
             if e > self.threshold_m: ad_count_ori = ad_count_ori + 1
         print('###')
         print('total number of unttacked images: ', len(ori_detection))
@@ -263,8 +275,72 @@ class FeatureSqueezing:
             p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
             logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
             p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
-            e = entropy(p, p_sq)
+            e = self.calculate_e(p, p_sq)
             if e > self.threshold_m: ad_count_attacked = ad_count_attacked + 1
+        print('###')
+        print('total number of attacked attacked images: ', len(attacked_detection))
+        print("total number of detected adversarial samples: ", ad_count_attacked)
+        print('detection ratio: ', ad_count_attacked/len(attacked_detection))
+
+    def joint_detection(self, bit_depth = 5, size = 3):
+        # intialize
+        ad_count_ori = 0
+        ad_count_attacked = 0
+        # load model
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = torch.load(self.model_path, map_location=device)
+        net = model.eval()
+        # learn threshold
+        n_ori_learn = int(len(self.ori_arr) * self.learn_ratio)
+        n_attacked_learn = int(len(self.attacked_arr) * self.learn_ratio)
+        ori_learn = self.ori_arr[0:n_ori_learn - 1]
+        attacked_learn = self.attacked_arr[0:n_attacked_learn - 1]
+        ori_detection = self.ori_arr[n_ori_learn:]
+        attacked_detection = self.attacked_arr[n_attacked_learn:]
+        self.learn_threshold_c(net, bit_depth, ori_learn, attacked_learn)
+        self.learn_threshold_m(net, size, ori_learn, attacked_learn)
+        # detection
+        print('### testing threshold ###')
+        for i in range(len(ori_detection)):
+            image = ori_detection[i]        
+            image_sq = median_filter(image, size)
+            logit = net.forward(Variable(image[None, :, :, :], requires_grad=True))
+            p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
+            logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
+            p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
+            e_c = self.calculate_e(p, p_sq)
+            image_sq = median_filter(image, size)
+            logit = net.forward(Variable(image[None, :, :, :], requires_grad=True))
+            p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
+            logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
+            p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
+            e_m = self.calculate_e(p, p_sq)
+            if e_c > e_m:
+                if e_c > self.threshold_c: ad_count_ori = ad_count_ori + 1
+            else:
+                if e_m > self.threshold_m: ad_count_ori = ad_count_ori + 1
+        print('###')
+        print('total number of unttacked images: ', len(ori_detection))
+        print("total number of detected adversarial samples: ", ad_count_ori)
+        print('false positive ratio: ', ad_count_ori/len(ori_detection))
+        for i in range(len(attacked_detection)):
+            image = attacked_detection[i]        
+            image_sq = median_filter(image, size)
+            logit = net.forward(Variable(image[None, :, :, :], requires_grad=True))
+            p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
+            logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
+            p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
+            e_c = self.calculate_e(p, p_sq)
+            image_sq = median_filter(image, size)
+            logit = net.forward(Variable(image[None, :, :, :], requires_grad=True))
+            p = torch.nn.functional.softmax(logit, dim=1).data.numpy().flatten()
+            logit_sq = net.forward(Variable(image_sq[None, :, :, :], requires_grad=True))
+            p_sq = torch.nn.functional.softmax(logit_sq, dim=1).data.numpy().flatten()
+            e_m = self.calculate_e(p, p_sq)
+            if e_c > e_m:
+                if e_c > self.threshold_c: ad_count_attacked = ad_count_attacked + 1
+            else:
+                if e_m > self.threshold_m: ad_count_attacked = ad_count_attacked + 1
         print('###')
         print('total number of attacked attacked images: ', len(attacked_detection))
         print("total number of detected adversarial samples: ", ad_count_attacked)
@@ -276,6 +352,8 @@ if __name__ == '__main__':
     parser.add_argument('--bit', type=int, default=5, help='bit') 
     parser.add_argument('--median_smoothing', type=str2bool, default=True, help='median_smoothing')
     parser.add_argument('--size', type=int, default=2, help='size') 
+    parser.add_argument('--joint', type=str2bool, default=False, help='joint')
+    parser.add_argument('--lr', type=float, default=0.7, help='joint')
 
     args = parser.parse_args()
     print('color_depth: ', args.color_depth)
@@ -297,13 +375,15 @@ if __name__ == '__main__':
     f = open('/content/gdrive/MyDrive/EQ2445/Pytorch_Classification_Intergration/my_data/Master project data/pert_image/attacked_arr.pckl', 'rb')
     attacked_arr = pickle.load(f)
     f.close() 
-    fq = FeatureSqueezing(img_path, mean, std, model_path, num_classes, ori_arr, attacked_arr, 0.5)
+    fq = FeatureSqueezing(img_path, mean, std, model_path, num_classes, ori_arr, attacked_arr, args.lr, 1)
     if args.color_depth == True:
         print('########## bit depth ##########')
         fq.color_bit_detection(args.bit)
     if args.median_smoothing == True:
         print('########## median smoothing ##########')
         fq.median_smooth_detection(args.size)
-
+    if args.joint == True:
+        print('########## joint detection ##########')
+        fq.joint_detection(args.bit, args.size)
 
   
